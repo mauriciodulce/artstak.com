@@ -1,0 +1,62 @@
+import:
+  - recipe/statamic.php
+  - contrib/npm.php
+
+config:
+  application: "Artstak Studio"
+  repository: "git@github.com:mauriciodulce/artstak.com.git"
+  php_fpm_version: "8.3"
+  nodejs_version: "20"
+
+hosts:
+  188.245.94.37:
+    remote_user: dulcedev
+    deploy_path: "~/artstak.escena.dev"
+
+tasks:
+  php_fpm_reload:
+    - run: echo "" | sudo -S service php8.3-fpm reload
+  statamic_stache_warm:
+    - run: php {{release_path}}/artisan statamic:stache:warm
+  statamic_search_update:
+    - run: php {{release_path}}/artisan statamic:search:update --all
+  statamic_static_warm:
+    - run: php {{release_path}}/artisan statamic:static:warm --queue
+  build:
+    - run: uptime
+
+  npm_run_prod:
+    - cd: "{{release_path}}"
+    - run: npm run build
+
+  setup_git:
+    - run: |
+        cd {{release_path}}
+        git init
+        git remote add origin git@github.com:mauriciodulce/floridapool.git
+        git fetch
+        git branch --track main origin/main
+        git reset HEAD
+
+  deploy:
+    - deploy:prepare
+    - deploy:vendors
+    - artisan:storage:link
+    - artisan:cache:clear
+    - artisan:config:cache
+    - artisan:route:cache
+    - statamic_stache_warm
+    - artisan:queue:restart
+    - statamic_search_update
+    - statamic:static:clear
+    - statamic_static_warm
+    - deploy:publish
+    - artisan:horizon:terminate
+    - setup_git
+
+before:
+  deploy:update_code: php_fpm_reload
+after:
+  deploy:update_code: npm:install
+  deploy:vendors: npm_run_prod
+  deploy:failed: deploy:unlock
